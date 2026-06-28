@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: mini-opgg-backend
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/mini_opgg}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+server:
+  port: 8080
+
+riot:
+  api-key: ${RIOT_API_KEY:}
+  # Account-V1 and Match-V5 use regional routes. Americas works for NA/LATAM/BR.
+  regional-route: ${RIOT_REGIONAL_ROUTE:americas}
+  # Summoner-V4 and League-V4 use platform routes. na1 is the default for NA.
+  platform-route: ${RIOT_PLATFORM_ROUTE:na1}
+  cache-ttl-minutes: ${RIOT_CACHE_TTL_MINUTES:30}
