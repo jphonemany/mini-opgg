@@ -50,7 +50,7 @@ public class PlayerAnalyticsService {
         if (isRankUnavailable(player) || !isFresh(player.getRankUpdatedAt())) {
             RiotApiService.RiotRank rank;
             try {
-                rank = riotApiService.getSoloQueueRank(player.getSummonerId());
+                rank = riotApiService.getSoloQueueRank(player.getPuuid());
             } catch (RiotApiException ex) {
                 if (ex.getStatusCode() == 403) {
                     player.setTier("UNAVAILABLE");

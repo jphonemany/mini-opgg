@@ -27,9 +27,7 @@ async function getJson(path) {
 }
 
 export async function fetchPlayerDashboard(gameName, tagLine) {
-  const encodedGameName = encodeURIComponent(gameName);
-  const encodedTagLine = encodeURIComponent(tagLine);
-  const basePath = `/api/player/${encodedGameName}/${encodedTagLine}`;
+  const basePath = playerPath('/api/player', gameName, tagLine);
 
   const profile = await getJson(basePath);
   const [rank, matches] = await Promise.all([
@@ -39,4 +37,23 @@ export async function fetchPlayerDashboard(gameName, tagLine) {
   const summary = await getJson(`${basePath}/summary`);
 
   return { profile, rank, matches, summary };
+}
+
+export async function fetchTftDashboard(gameName, tagLine) {
+  const basePath = playerPath('/api/tft/player', gameName, tagLine);
+
+  const profile = await getJson(basePath);
+  const [rank, matches] = await Promise.all([
+    getJson(`${basePath}/rank`),
+    getJson(`${basePath}/matches`),
+  ]);
+  const summary = await getJson(`${basePath}/summary`);
+
+  return { profile, rank, matches, summary };
+}
+
+function playerPath(prefix, gameName, tagLine) {
+  const encodedGameName = encodeURIComponent(gameName);
+  const encodedTagLine = encodeURIComponent(tagLine);
+  return `${prefix}/${encodedGameName}/${encodedTagLine}`;
 }

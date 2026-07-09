@@ -1,6 +1,6 @@
 spring:
   application:
-    name: mini-opgg-backend
+    name: mini-gg-backend
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/mini_opgg}
     username: ${DATABASE_USERNAME:postgres}

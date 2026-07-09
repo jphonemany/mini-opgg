@@ -12,10 +12,10 @@
     </parent>
 
     <groupId>com.miniopgg</groupId>
-    <artifactId>mini-opgg-backend</artifactId>
+    <artifactId>mini-gg-backend</artifactId>
     <version>0.1.0</version>
-    <name>mini-opgg-backend</name>
-    <description>Spring Boot backend for a Mini OP.GG League analytics portfolio app.</description>
+    <name>mini-gg-backend</name>
+    <description>Spring Boot backend for a mini.gg League analytics portfolio app.</description>
 
     <properties>
         <java.version>17</java.version>

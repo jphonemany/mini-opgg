@@ -1,13 +1,22 @@
 import { useMemo, useState } from 'react';
-import { fetchPlayerDashboard } from './api.js';
+import { fetchPlayerDashboard, fetchTftDashboard } from './api.js';
 
 const sampleMatches = [];
+const TABS = {
+  league: "Summoner's Rift",
+  tft: 'TFT',
+};
 
 function App() {
   const [riotId, setRiotId] = useState('');
   const [dashboard, setDashboard] = useState(null);
+  const [tftDashboard, setTftDashboard] = useState(null);
   const [status, setStatus] = useState('idle');
+  const [tftStatus, setTftStatus] = useState('idle');
   const [error, setError] = useState('');
+  const [tftError, setTftError] = useState('');
+  const [activeTab, setActiveTab] = useState('league');
+  const [searchedPlayer, setSearchedPlayer] = useState(null);
 
   const matches = dashboard?.matches ?? sampleMatches;
   const record = useMemo(() => {
@@ -26,6 +35,11 @@ function App() {
       return;
     }
 
+    setActiveTab('league');
+    setSearchedPlayer(parsed);
+    setTftDashboard(null);
+    setTftStatus('idle');
+    setTftError('');
     setStatus('loading');
     try {
       const data = await fetchPlayerDashboard(parsed.gameName, parsed.tagLine);
@@ -38,12 +52,31 @@ function App() {
     }
   }
 
+  async function handleTabChange(tab) {
+    setActiveTab(tab);
+    if (tab !== 'tft' || tftDashboard || tftStatus === 'loading' || !searchedPlayer) {
+      return;
+    }
+
+    setTftStatus('loading');
+    setTftError('');
+    try {
+      const data = await fetchTftDashboard(searchedPlayer.gameName, searchedPlayer.tagLine);
+      setTftDashboard(data);
+      setTftStatus('success');
+    } catch (requestError) {
+      setTftDashboard(null);
+      setTftStatus('error');
+      setTftError(requestError.message);
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="search-panel">
         <div>
           <p className="eyebrow">League of Legends analytics</p>
-          <h1>Mini OP.GG</h1>
+          <h1>mini.gg</h1>
           <p className="lede">
             Search a Riot ID to view profile stats, ranked solo queue, recent
             matches, and performance trends.
@@ -72,12 +105,39 @@ function App() {
       {status === 'loading' && <LoadingDashboard />}
 
       {dashboard && (
-        <section className="dashboard-grid" aria-live="polite">
-          <ProfileCard profile={dashboard.profile} record={record} />
-          <RankCard rank={dashboard.rank} />
-          <SummaryCards summary={dashboard.summary} />
-          <MatchHistory matches={dashboard.matches} />
-        </section>
+        <>
+          <div className="tabs" role="tablist" aria-label="Game mode">
+            {Object.entries(TABS).map(([tab, label]) => (
+              <button
+                aria-selected={activeTab === tab}
+                className={activeTab === tab ? 'active' : ''}
+                key={tab}
+                onClick={() => handleTabChange(tab)}
+                role="tab"
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === 'league' && (
+            <section className="dashboard-grid" aria-live="polite">
+              <ProfileCard profile={dashboard.profile} record={record} />
+              <RankCard rank={dashboard.rank} />
+              <SummaryCards summary={dashboard.summary} />
+              <MatchHistory matches={dashboard.matches} />
+            </section>
+          )}
+
+          {activeTab === 'tft' && (
+            <TftDashboard
+              dashboard={tftDashboard}
+              error={tftError}
+              status={tftStatus}
+            />
+          )}
+        </>
       )}
     </main>
   );
@@ -158,6 +218,102 @@ function MatchHistory({ matches }) {
   );
 }
 
+function TftDashboard({ dashboard, error, status }) {
+  if (status === 'loading') {
+    return <LoadingDashboard />;
+  }
+
+  if (error) {
+    return (
+      <section className="dashboard-grid" aria-live="polite">
+        <article className="panel full-width">
+          <p className="form-error">{error}</p>
+        </article>
+      </section>
+    );
+  }
+
+  if (!dashboard) {
+    return (
+      <section className="dashboard-grid" aria-live="polite">
+        <article className="panel full-width">
+          <p className="empty-state">Open the TFT tab to load recent TFT stats.</p>
+        </article>
+      </section>
+    );
+  }
+
+  return (
+    <section className="dashboard-grid" aria-live="polite">
+      <TftRankCard rank={dashboard.rank} />
+      <TftSummaryCards summary={dashboard.summary} />
+      <TftMatchHistory matches={dashboard.matches} />
+    </section>
+  );
+}
+
+function TftRankCard({ rank }) {
+  return (
+    <article className="panel rank-card">
+      <p className="label">TFT Ranked</p>
+      <h2>
+        {rank.tier}
+        {rank.rank ? ` ${rank.rank}` : ''}
+      </h2>
+      <div className="rank-meta">
+        <span>{rank.leaguePoints} LP</span>
+        <span>{rank.wins}W</span>
+        <span>{rank.losses}L</span>
+        <span>{rank.winRate}% WR</span>
+      </div>
+    </article>
+  );
+}
+
+function TftSummaryCards({ summary }) {
+  return (
+    <section className="summary-strip">
+      <Stat label="Games" value={summary.totalGamesAnalyzed} />
+      <Stat label="Avg place" value={summary.averagePlacement} />
+      <Stat label="Top 4" value={`${summary.topFourRate}%`} />
+      <Stat label="1st place" value={`${summary.firstPlaceRate}%`} />
+      <Stat label="Best" value={`#${summary.bestPlacement}`} />
+      <Stat label="Top unit" value={summary.mostPlayedUnit} />
+    </section>
+  );
+}
+
+function TftMatchHistory({ matches }) {
+  return (
+    <section className="panel match-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="label">Recent TFT matches</p>
+          <h2>Last {matches.length} games</h2>
+        </div>
+      </div>
+      <div className="match-list">
+        {matches.map((match) => (
+          <article
+            className={`match-row tft ${match.placement <= 4 ? 'win' : 'loss'}`}
+            key={match.matchId}
+          >
+            <div>
+              <strong>#{match.placement}</strong>
+              <span>{formatTftGameType(match.gameType)}</span>
+            </div>
+            <div>Level {match.level}</div>
+            <div>{formatDuration(match.gameLength)}</div>
+            <div>{formatDate(match.playedAt)}</div>
+            <div className="wide-cell">{match.units.slice(0, 4).join(', ') || 'Units unavailable'}</div>
+            <span className="result-badge">{match.placement === 1 ? '1st' : match.placement <= 4 ? 'Top 4' : 'Bot 4'}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Stat({ label, value }) {
   return (
     <div className="stat">
@@ -208,6 +364,16 @@ function formatGameMode(gameMode) {
   };
 
   return gameModes[gameMode] ?? gameMode;
+}
+
+function formatTftGameType(gameType) {
+  const gameTypes = {
+    pairs: 'Double Up',
+    standard: 'Standard',
+    turbo: 'Hyper Roll',
+  };
+
+  return gameTypes[gameType] ?? gameType;
 }
 
 export default App;

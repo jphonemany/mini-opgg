@@ -1,8 +1,8 @@
 package com.miniopgg.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.MissingNode;
 import com.miniopgg.config.RiotApiProperties;
-import com.miniopgg.exception.PlayerNotFoundException;
 import com.miniopgg.exception.RiotApiException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -11,53 +11,44 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
-import com.fasterxml.jackson.databind.node.MissingNode;
 import java.util.ArrayList;
 import java.util.List;
 
 @Service
-public class RiotApiService {
+public class TftApiService {
     private final RiotApiProperties properties;
     private final RestClient restClient;
 
-    public RiotApiService(RiotApiProperties properties, RestClient.Builder restClientBuilder) {
+    public TftApiService(RiotApiProperties properties, RestClient.Builder restClientBuilder) {
         this.properties = properties;
         this.restClient = restClientBuilder.build();
     }
 
-    public RiotAccount searchPlayerByRiotId(String gameName, String tagLine) {
-        JsonNode account;
-        try {
-            account = getJson(regionalBaseUrl()
-                    + "/riot/account/v1/accounts/by-riot-id/{gameName}/{tagLine}", gameName, tagLine);
-        } catch (RiotApiException ex) {
-            if (ex.getStatusCode() == 404) {
-                throw new PlayerNotFoundException(gameName, tagLine);
-            }
-            throw ex;
-        }
-        return new RiotAccount(
-                account.path("gameName").asText(gameName),
-                account.path("tagLine").asText(tagLine),
-                account.path("puuid").asText()
-        );
-    }
-
-    public RiotSummoner getSummonerByPuuid(String puuid) {
+    public TftSummoner getTftSummonerByPuuid(String puuid) {
         JsonNode summoner = getJson(platformBaseUrl()
-                + "/lol/summoner/v4/summoners/by-puuid/{puuid}", puuid);
-        return new RiotSummoner(
+                + "/tft/summoner/v1/summoners/by-puuid/{puuid}", puuid);
+        return new TftSummoner(
                 summoner.path("id").asText(),
                 summoner.path("summonerLevel").asLong()
         );
     }
 
-    public RiotRank getSoloQueueRank(String puuid) {
+    public TftRank getRank(String puuid) {
         JsonNode entries = getJson(platformBaseUrl()
-                + "/lol/league/v4/entries/by-puuid/{puuid}", puuid);
+                + "/tft/league/v1/by-puuid/{puuid}", puuid);
+        return findRankedTftEntry(entries);
+    }
+
+    public TftRank getRankBySummonerId(String summonerId) {
+        JsonNode entries = getJson(platformBaseUrl()
+                + "/tft/league/v1/entries/by-summoner/{summonerId}", summonerId);
+        return findRankedTftEntry(entries);
+    }
+
+    private TftRank findRankedTftEntry(JsonNode entries) {
         for (JsonNode entry : entries) {
-            if ("RANKED_SOLO_5x5".equals(entry.path("queueType").asText())) {
-                return new RiotRank(
+            if ("RANKED_TFT".equals(entry.path("queueType").asText())) {
+                return new TftRank(
                         entry.path("tier").asText("UNRANKED"),
                         entry.path("rank").asText(""),
                         entry.path("leaguePoints").asInt(),
@@ -71,34 +62,40 @@ public class RiotApiService {
 
     public List<String> getRecentMatchIds(String puuid, int count) {
         JsonNode ids = getJson(regionalBaseUrl()
-                + "/lol/match/v5/matches/by-puuid/{puuid}/ids?start=0&count={count}", puuid, count);
+                + "/tft/match/v1/matches/by-puuid/{puuid}/ids?start=0&count={count}", puuid, count);
         List<String> matchIds = new ArrayList<>();
         ids.forEach(id -> matchIds.add(id.asText()));
         return matchIds;
     }
 
-    public RiotMatch getMatchDetails(String matchId, String puuid) {
-        JsonNode match = getJson(regionalBaseUrl() + "/lol/match/v5/matches/{matchId}", matchId);
+    public TftMatchDetails getMatchDetails(String matchId, String puuid) {
+        JsonNode match = getJson(regionalBaseUrl() + "/tft/match/v1/matches/{matchId}", matchId);
         JsonNode info = match.path("info");
         JsonNode participant = findParticipant(info.path("participants"), puuid);
         if (participant.isMissingNode()) {
-            throw new RiotApiException("Player was not present in match " + matchId + ".", 502);
+            throw new RiotApiException("Player was not present in TFT match " + matchId + ".", 502);
         }
 
-        int cs = participant.path("totalMinionsKilled").asInt()
-                + participant.path("neutralMinionsKilled").asInt();
+        List<String> units = new ArrayList<>();
+        participant.path("units").forEach(unit -> units.add(cleanName(unit.path("character_id").asText())));
 
-        return new RiotMatch(
-                match.path("metadata").path("matchId").asText(matchId),
-                participant.path("championName").asText(),
-                participant.path("kills").asInt(),
-                participant.path("deaths").asInt(),
-                participant.path("assists").asInt(),
-                participant.path("win").asBoolean(),
-                cs,
-                info.path("gameDuration").asLong(),
-                info.path("gameMode").asText(),
-                info.path("gameEndTimestamp").asLong()
+        List<String> traits = new ArrayList<>();
+        participant.path("traits").forEach(trait -> {
+            if (trait.path("tier_current").asInt() > 0) {
+                traits.add(cleanName(trait.path("name").asText()));
+            }
+        });
+
+        return new TftMatchDetails(
+                match.path("metadata").path("match_id").asText(matchId),
+                participant.path("placement").asInt(),
+                participant.path("level").asInt(),
+                Math.round(info.path("game_length").asDouble()),
+                info.path("queue_id").asInt(),
+                info.path("tft_game_type").asText("standard"),
+                info.path("game_datetime").asLong(),
+                units,
+                traits
         );
     }
 
@@ -120,13 +117,13 @@ public class RiotApiService {
                     .retrieve()
                     .body(JsonNode.class);
         } catch (HttpClientErrorException.NotFound ex) {
-            throw new RiotApiException("Riot API resource was not found.", 404);
+            throw new RiotApiException("Riot TFT API resource was not found.", 404);
         } catch (HttpClientErrorException.TooManyRequests ex) {
             throw new RiotApiException("Riot API rate limit reached. Wait a moment and try again.", 429);
         } catch (HttpClientErrorException | HttpServerErrorException ex) {
-            throw new RiotApiException("Riot API request failed with status " + ex.getStatusCode() + ".", ex.getStatusCode().value());
+            throw new RiotApiException("Riot TFT API request failed with status " + ex.getStatusCode() + ".", ex.getStatusCode().value());
         } catch (ResourceAccessException ex) {
-            throw new RiotApiException("Riot API request timed out. Try again in a moment.", 504);
+            throw new RiotApiException("Riot TFT API request timed out. Try again in a moment.", 504);
         }
     }
 
@@ -144,26 +141,29 @@ public class RiotApiService {
         return "https://" + properties.platformRoute() + ".api.riotgames.com";
     }
 
-    public record RiotAccount(String gameName, String tagLine, String puuid) {
+    private String cleanName(String value) {
+        return value
+                .replace("TFT_", "")
+                .replaceAll("^Set\\d+_", "")
+                .replace('_', ' ');
     }
 
-    public record RiotSummoner(String summonerId, long summonerLevel) {
+    public record TftSummoner(String summonerId, long summonerLevel) {
     }
 
-    public record RiotRank(String tier, String rank, int leaguePoints, int wins, int losses) {
+    public record TftRank(String tier, String rank, int leaguePoints, int wins, int losses) {
     }
 
-    public record RiotMatch(
+    public record TftMatchDetails(
             String matchId,
-            String championName,
-            int kills,
-            int deaths,
-            int assists,
-            boolean win,
-            int cs,
-            long gameDuration,
-            String gameMode,
-            long gameEndTimestamp
+            int placement,
+            int level,
+            long gameLength,
+            int queueId,
+            String gameType,
+            long gameDatetime,
+            List<String> units,
+            List<String> traits
     ) {
     }
 }
